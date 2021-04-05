@@ -1,0 +1,132 @@
+#include <Servo.h>
+
+//Author: Joe Doerr
+
+//Specific Values:
+unsigned long ClickAngleOriginal = 47;
+unsigned long ClickAngleDown = 143;
+unsigned long ResetAngleOriginal = 70;
+unsigned long ResetAngleDown = 150;
+
+//set uniquely each time
+unsigned long BattleValue;
+
+//saving time
+unsigned long TimeStart;
+unsigned long EncounterStart;
+
+//bools
+bool Encountering = false;
+bool FoundAShiny = false;
+bool ShouldReset = true;
+bool FirstClick = false; //hooh screen
+bool SecondClick = false; //get into game
+bool EncounterClick = false; //encounter pokemon click
+
+bool FirstTime = true;
+
+//creates shiny value
+unsigned long AverageMillis[5] = {13000, 13000, 13000, 23000, 53000};
+unsigned long AverageMillisSize = 5;
+
+Servo ClickA;
+Servo Reset;
+
+void setup() {
+  
+  //set up servos
+  ClickA.attach(8);
+  Reset.attach(9);
+
+  //time until move setup
+  TimeStart = millis();
+
+  delay(3000);
+
+  Serial.begin(9600);
+}
+
+void ClickAButton()
+{
+  ClickA.write(ClickAngleOriginal);
+  delay(1000);
+  ClickA.write(ClickAngleDown);
+  delay(1000);
+  ClickA.write(ClickAngleOriginal);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+  if(ShouldReset == true && FoundAShiny == false)
+  {
+    //reset all the values
+    ShouldReset = false;
+    Encountering = false;
+    FirstClick = false;
+    SecondClick = false;
+    EncounterClick = false;
+
+    //Now click the power button
+    Reset.write(ResetAngleOriginal);
+    delay(1000);
+    Reset.write(ResetAngleDown);
+    delay(1000);
+    Reset.write(ResetAngleOriginal);
+    TimeStart = millis();
+  }
+
+  if(TimeStart + 15000 < millis() && FirstClick == false)
+  {
+    FirstClick = true;
+    ClickAButton();
+  }
+
+  if(TimeStart + 20000 < millis() && SecondClick == false)
+  {
+    SecondClick = true;
+    ClickAButton();
+  }
+
+  if(TimeStart + 35000 < millis() && EncounterClick == false)
+  {
+    EncounterClick = true;
+    ClickAButton();
+    delay(1000);
+    ClickAButton();
+    EncounterStart = millis();
+  }
+
+  if(FirstTime == true && EncounterClick == true)
+  {
+    delay(15000);
+    BattleValue = analogRead(A0);
+    ShouldReset = true;
+  }
+  else if(EncounterClick == true && EncounterStart + 6000 < millis() && BattleValue + 30 > analogRead(A0) && analogRead(A0) > BattleValue - 30 && FoundAShiny == false)
+  {
+    unsigned long TimeSpent = millis() - EncounterStart;
+    unsigned long ShinyValue = 0;
+    for(int i = 0; i < AverageMillisSize; i++)
+    {
+      ShinyValue += AverageMillis[i];
+    }
+    ShinyValue /= AverageMillisSize;
+  
+    if(TimeSpent >= ShinyValue + 1000)
+    {
+      FoundAShiny = true;
+    }
+    else //just run away
+    {
+      for(int i = 0; i < AverageMillisSize - 1; i++)
+      {
+        AverageMillis[i] = AverageMillis[i + 1];
+      }
+      AverageMillis[AverageMillisSize - 1] = TimeSpent;
+      ShouldReset = true;
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////
