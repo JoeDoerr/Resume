@@ -1,0 +1,219 @@
+#include <Servo.h>
+
+//Author: Joe Doerr
+
+//Specific Values for each physical model (Editing this is all you need to do to modify it for any game or servo):
+unsigned long MoveAngleOne = 47; //moving up
+unsigned long MoveAngleTwo = 143; //moving down
+unsigned long RunAngleOriginal = 70; //how servo sits neutral
+unsigned long RunAngleDown = 150; //servo clicking run
+unsigned long EncounterValueSubtraction = 80; //the initial difference between normal screen and dark encounter screen (Updated later)
+
+
+//Servos
+Servo Move;
+Servo Run;
+
+//Time Variables
+unsigned long StartMillis; //StartMillis = millis(); //gets the millis at the time
+unsigned long TimeSpent = 0; //to hold the time spent
+unsigned long TimeUntilMove; //counts time until need to move arm
+unsigned long SinceRun; //to stop from searching for pokemon too fast
+unsigned long AverageMillis[5] = {13000, 13000, 13000, 13000, 53000}; //we actually start checking for shinies after 5 times where we fill this up with our own values
+int AverageMillisSize = 5;
+
+//booleans to control flow
+bool Encountering = false; 
+bool FoundAShiny = false;
+bool InEncounter = false;
+
+//Light sensor values
+unsigned long EncounterValue;
+unsigned long BattleValue;
+
+//misc
+bool Once = false;
+int REs = 0;
+
+int SaveServo = 0; //to stop movement if something is broken to protect servos from damage
+///////////////////////////
+
+void setup() 
+{
+  //set up servos
+  Move.attach(8);
+  Run.attach(9);
+
+  //time until move setup
+  TimeUntilMove = millis();
+
+  delay(3000);
+
+  Serial.begin(9600);
+}
+
+
+void loop() 
+{
+  if(Once == false) //get the light values
+  {
+    Once = true;
+    EncounterValue = analogRead(A0) - EncounterValueSubtraction; //320 base to 780 is found pokemon
+    Serial.print("EncounterValue: ");
+    Serial.print(EncounterValue);
+
+    while(true) //get the first encounter to happen
+    {
+      Move.write(MoveAngleOne);
+      delay(400);
+      if(analogRead(A0) < EncounterValue)
+      {
+        delay(100);
+        EncounterValue = analogRead(A0) + 25; //setting correct encounter value also
+        Move.write(91);
+        break;
+      }
+      Move.write(90);
+      delay(600);
+      Move.write(MoveAngleTwo);
+      delay(400);
+      if(analogRead(A0) < EncounterValue)
+      {
+        delay(100);
+        EncounterValue = analogRead(A0) + 25;
+        Move.write(91);
+        break;
+      }
+      Move.write(90);
+      delay(600);
+    }
+
+    delay(15000); //After the pokemon found, wait a good and long time for the red attack button to appear
+    
+    BattleValue = analogRead(A0); //now choose the battle value
+    Serial.print("BattleValue: ");
+    Serial.print(BattleValue);
+    Serial.print('\n');
+
+    delay(1000); //now run to start this whole thing
+    Run.write(RunAngleDown); //down clicking
+    delay(1100);
+    Run.write(RunAngleOriginal); //back to normal position
+    delay(6000);
+  }
+
+  //Serial.print(analogRead(A0));
+  //Serial.print(" ");
+  //----------------------End of Once----------------------------------/
+
+
+  //----------------------Normal Loop Begin----------------------------/
+  if(TimeUntilMove + 1200 <= millis() && Encountering == false && FoundAShiny == false) //once it passes 2000 milliseconds, we reset it and go
+  {
+    SaveServo += 1;
+
+    if(SaveServo == 100)
+    {
+      FoundAShiny = true;
+    }
+    
+    if(Move.read() >= 90)
+    {
+      Move.write(MoveAngleOne);
+    }
+    else
+    {
+      Move.write(MoveAngleTwo);
+    }
+
+    TimeUntilMove = millis();
+  }
+  //-------------------------------------------------------------------/
+  
+  /////////////////////////////////////////
+  if(TimeUntilMove + 400 <= millis() && Move.read() != 89 && Move.read() != 91 && Encountering == false && FoundAShiny == false) //once it passes 2000 milliseconds, we reset it and go
+  {
+    if(Move.read() >= 90)
+    {
+      Move.write(91);
+    }
+    else
+    {
+      Move.write(89);
+    }
+  }
+
+
+  //check for pokemon found (each ds will maybe need its own configuration for light amount
+
+  //--------------------------------------------------------------------/
+  if(Encountering == false && analogRead(A0) < EncounterValue) //won't run if we never get out of the encounter because we found a shiny
+  {
+    Serial.print('\n');
+    Serial.print("Found Pokemon: ");
+    Serial.print('\n');
+    StartMillis = millis();
+    Encountering = true;
+    Move.write(90);
+  }
+
+  if(Encountering == true && TimeSpent == 0 && StartMillis + 6000 < millis() && analogRead(A0) > BattleValue - 30 && analogRead(A0) < BattleValue + 30)//need to be at least 3 seconds since encounter started and needs to be in a sort of tight range for the red button
+  {
+    SaveServo = 0; //we found a pokemon so reset the count
+    
+    TimeSpent = millis() - StartMillis;
+    REs += 1;
+    InEncounter = true;
+
+    //printing
+    Serial.print("Finished RE DS1. Encounter Time: ");
+    Serial.print(TimeSpent); 
+    Serial.print('\n');
+    ///////////
+    
+    unsigned long ShinyValue = 0;
+    for(int i = 0; i < AverageMillisSize; i++)
+    {
+      ShinyValue += AverageMillis[i];
+    }
+    ShinyValue /= AverageMillisSize;
+    Serial.print("Shiny Value: ");
+    Serial.print(ShinyValue + 1000);
+    if(TimeSpent >= ShinyValue + 1000) //this happens if it is shiny
+    {
+      Serial.print("A SHINY POKEMON!");
+      FoundAShiny = true;
+    }
+    else //just run away
+    {
+      Run.write(RunAngleOriginal);
+      delay(1100);
+      Run.write(RunAngleDown); //down clicking
+      SinceRun = millis();
+      Serial.print("REs: ");
+      Serial.print(REs);
+
+      for(int i = 0; i < AverageMillisSize - 1; i++)
+      {
+        AverageMillis[i] = AverageMillis[i + 1];
+      }
+      AverageMillis[AverageMillisSize - 1] = TimeSpent;
+
+      delay(1100);
+      Run.write(RunAngleOriginal); //back to normal position
+      Serial.print("DS1 Running away");
+      Serial.print('\n');
+    }
+  }
+
+  if(Encountering == true && SinceRun + 9000 < millis() && InEncounter == true && FoundAShiny == false) //inencounter stops there from being a senseless loop with spamming finding a pokemon
+  {
+    InEncounter = false; //to avoid this from running multiple times
+    Encountering = false; //this happening now means that the pokemon searching won't run until 9 seconds after running
+
+    TimeSpent = 0; //setting to 0 allows the red battle button to be found again (when we can run away)
+  }
+  //-------------------------------------------------------------------/
+  
+  ///////////////////////////////////////END////////////////////////////////////////////
+}
