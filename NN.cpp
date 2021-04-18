@@ -4,6 +4,7 @@
 #include "math.h"
 #include "stdlib.h"     /* srand, rand */
 #include "time.h"       /* time */
+#include "fstream"
 
 using namespace Eigen;
 
@@ -17,12 +18,15 @@ using namespace Eigen;
 #define SIGMOIDAF 2
 #define SOFTMAXAF 3
 
+//*Errors I have had: put 0 for all the layers you are not using, Accidently said I was wrong choose action type, layers need to match with how many value u put, THE WRONG PLACE FOR THE NH2 SIZE 
+
 //2 layer means just the input and output, 3 layers means output and 1 hidden, and so forth
-NN::NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHidden, int BatchSize, bool UsingRandomizedLearning, double LR, int MemorySize, int GetRewardType, int ChooseActionType, int NH2, int NH3, int NH4, bool ActionChooserNN)
-	: Inputs(NI), Layers(LayerAmount), NI(NI), NH1(NH1), NOut(NOut), NH2(NH2), NH3(NH3), NH4(NH4), LR(LR), MemorySize(MemorySize), UsingRandomizedLearning(UsingRandomizedLearning), BatchSize(BatchSize),
-	GetRewardType(GetRewardType), ChooseActionType(ChooseActionType), ActionChooserNN(ActionChooserNN)
+NN::NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHidden, double LR, int MemorySize, int GetRewardType, int ChooseActionType, int NH2, int NH3, int NH4, bool ActionChooserNN, bool SaveOutputs, std::string FileName)
+	: Inputs(NI), Layers(LayerAmount), NI(NI), NH1(NH1), NOut(NOut), NH2(NH2), NH3(NH3), NH4(NH4), LR(LR), MemorySize(MemorySize),
+	GetRewardType(GetRewardType), ChooseActionType(ChooseActionType), ActionChooserNN(ActionChooserNN), SaveOutputs(SaveOutputs), FileName(FileName)
 {
-	StateMemory = MatrixXd(MemorySize, NI);
+	StateMemory = MatrixXd(MemorySize, NI); //They have a size of 0 for some reason
+	OutputMemory = MatrixXd(MemorySize, NOut);
 	TempOutputMemory = MatrixXd(NOut, 1);
 	OutputChosenMemory = MatrixXd(MemorySize, 1);
 	RewardMemory = MatrixXd(MemorySize, 1);
@@ -48,7 +52,7 @@ NN::NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHi
 		LastHiddenSize = NH1;
 	}
 
-	int RecentLayer = 0;
+	int RecentLayer = NI;
 	for (int i = 0; i < Layers; i++)
 	{
 		//While we aren't on the last one, we keep setting more hidden layers
@@ -130,8 +134,10 @@ NN::NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHi
 //Initialize weights correctly so that the NN doesn't start off with exploding values
 void NN::InitializeWeightsScaledToInputAmount()
 {
-	//Amount 10 inputs is generally standard good for this so all the weights can be divided by: (input num / 10)
-	float ScalingFactor = (float)NI / 20.0;
+	//Amount 10 inputs is generally standard good for this so all the weights can be divided by: (input num / 20)
+	float ValuesPotentiallyAtOnce = 25;
+	float ScalingFactor = (float)NI / 30.0; //NI should actually be the amount of values there can potentially be at once
+	//float ScalingFactor = ValuesPotentiallyAtOnce / 20.0;
 
 	int RecentLayer = 0;
 	for (int i = 0; i < Layers; i++)
@@ -178,15 +184,15 @@ void NN::InitializeWeightsScaledToInputAmount()
 	}
 }
 
+
+//some info://
+
 //(row, column)
 //(NextLayer, PastLayer)
 //For the hidden layers, we have rows filled up
 //The weights look like [row-> column\/]
-///////////////////////////////////////
-///////////////////////////////////////
+
 //[ROW FOR OUTPUTS, COLUMN FOR INPUTS]
-///////////////////////////////////////
-///////////////////////////////////////
 
 //Access specific elements of matrices use:
 //MatrixName(0, 1);
@@ -199,6 +205,8 @@ void NN::InitializeWeightsScaledToInputAmount()
 
 //For matrices, it is each column is given to the corresponding iterator of the inputs going in
 //So for the neuron0, their weights to their respective next layer hidden neuron is in column0
+
+///INFO END///
 
 
 //Summary of FeedForward:
@@ -217,7 +225,7 @@ void NN::FeedForward(Eigen::MatrixXd Input, bool ForBackprop)
 {
 	//std::cout << "FeedForward: " << std::endl;
 	//First put the inputs into the input slot
-
+	//std::cout << OutputMemory << std::endl;
 	//When just data gathering is true, we are just grabbing the output to then backprop with, so we are filling up a temp output array to learn with only, don't need state mem
 	if (ForBackprop == false)
 	{
@@ -228,6 +236,7 @@ void NN::FeedForward(Eigen::MatrixXd Input, bool ForBackprop)
 			StateMemory(MemoryIt, i) = Input(i, 0); //since we are iterating through it doesn't matter if we are holding data vertically or horizontally, statemem can deposit it vertically if it needs
 		}
 	}
+	
 
 	//have a way to remember the hidden layer outputs temporarily
 	//Answer: just use the hidden layer neuron values
@@ -334,13 +343,28 @@ void NN::FeedForward(Eigen::MatrixXd Input, bool ForBackprop)
 				for (int j = 0; j < NOut; j++)
 				{
 					ArrayOutN(j, 0) = NN::ActivationFunction(1, OutN(j, 0));
+
+					if (SaveOutputs == true && ForBackprop == false) //we should never have a ForBackprop be true while save outputs is true, but just to be extra safe!
+					{
+						OutputMemory(MemoryIt, j) = ArrayOutN(j, 0);
+					}
 				}
 			}
 			else
 			{
 				//softmax
 				SoftmaxOutputs();
+
+				if (SaveOutputs == true && ForBackprop == false)
+				{
+					for (int a = 0; a < NOut; a++)
+					{
+						OutputMemory(MemoryIt, a) = ArrayOutN(a, 0);
+					}
+				}
 			}
+
+
 			//std::cout << "OutN: " << OutN << std::endl;
 			//std::cout << "Post AF OutN with this activation function: activation function: " << ActFunctionOut << " Here is Post AF OutN: " << ArrayOutN << std::endl;
 		}
@@ -379,7 +403,7 @@ void NN::FeedForward(Eigen::MatrixXd Input, bool ForBackprop)
 
 int NN::ChooseAction()
 {
-	std::cout << ArrayOutN << std::endl;
+	//std::cout << ArrayOutN << std::endl;
 
 	//Finding the highest value output
 	float h = -10000;
@@ -404,7 +428,7 @@ int NN::ChooseAction()
 
 	//Here we are doing different methods of action choosing based on our chooseactiontype
 	//We return the iterator of the action we chose after putting it in the mem, we output it so we can do things based on the action we just chose
-	if (ChooseActionType == EPSILONSUBACTIONTYPE) //PNN won't need epsilon, should be going by generational learned NN to pick things
+	if (ChooseActionType == EPSILONSUBACTIONTYPE)
 	{
 		OutputChosenMemory(MemoryIt, 0) = It;
 		return It;
@@ -479,10 +503,11 @@ void NN::BackPropagate(int MemIt, Eigen::MatrixXd Error)
 	{
 		TempM(i, 0) = StateMemory(MemIt, i);
 	}
+	
 	//Temp output memory and all the hidden layer values are now saved
 	//Now run a feedforward to have the hidden neuron values ready
 	FeedForward(TempM, true);
-
+	
 	//Errors
 	MatrixXd HLError = MatrixXd::Zero(LastHiddenSize, 1);
 	//Use in each of the cases
@@ -490,24 +515,25 @@ void NN::BackPropagate(int MemIt, Eigen::MatrixXd Error)
 
 	//Update the weights of hidden layer to outputs (Make sure this is hidden layer before the output)
 	GetLastHiddenL();
-
+	
 	MatrixXd Temp = LastHiddenL; //...Pointer to Last Hidden Layer neuron matrix ex: FourthN
 	for (int Out = 0; Out < NOut; Out++)
 	{
 		for (int LastH = 0; LastH < LastHiddenSize; LastH++)
 		{
+			
 			////////////////              error of this layer * Previous Neuron Output * LR * derivative of activation function with respect to this current hidden layer's output (Out)
 			OutW_D(Out, LastH) += Error(Out, 0) * Temp(LastH, 0) * LR * ActivationFunction(1, TempOutputMemory(Out, 0), true);
-
+			
 			//update the bias gradient for outputs
 			OutB_D(Out, 0) += Error(Out, 0) * LR;
 
 			//Now make the error for LastHidden
 			////////////////     Error from Out * weight from LastHidden to Out
-			HLError(LastH, 0) += Error(Out, 0) * OutW(Out, LastH);
+			HLError(LastH, 0) += Error(Out, 0) * OutW(Out, LastH); //error here
 		}
 	}
-
+	
 	for (int i = Layers - 2; i > 0; i--) //starts at layers-2, ends at 1
 	{
 		switch (i)
@@ -778,6 +804,190 @@ void NN::ScaleGradients() //this turns out to already exist and is called gradie
 	}
 }
 
+void NN::SaveWeights()
+{
+	std::ofstream File(FileName);
+
+	int RecentLayer = NI;
+	for (int i = 0; i < Layers; i++)
+	{
+		if (i != Layers - 1)
+		{
+			//[NextLayer, PastLayer]
+			switch (i)
+			{
+				//Input Layer, no biases
+			case 0:
+				//InputN = MatrixXd(NI, 1);
+				break;
+				//H1 Layer, biases, weight from past to this
+			case 1:
+				for (int B = 0; B < NH1; B++)
+				{
+					File << FirstB(B, 0) << "\n";
+
+					for (int W = 0; W < NI; W++)
+					{
+						File << FirstW(B, W) << "\n";
+					}
+				}
+				RecentLayer = NH1;
+				break;
+				//H2 Layer, biases, weight from past to this
+			case 2:
+				for (int B = 0; B < NH2; B++)
+				{
+					File << SecondB(B, 0) << "\n";
+
+					for (int W = 0; W < NH1; W++)
+					{
+						File << SecondW(B, W) << "\n";
+					}
+				}
+				RecentLayer = NH2;
+				break;
+				//H3 Layer, biases, weight from past to this
+			case 3:
+				for (int B = 0; B < NH3; B++)
+				{
+					File << ThirdB(B, 0) << "\n";
+
+					for (int W = 0; W < NH2; W++)
+					{
+						File << ThirdW(B, W) << "\n";
+					}
+				}
+				RecentLayer = NH3;
+				break;
+				//H4 Layer, biases, weight from past to this
+			case 4:
+				for (int B = 0; B < NH4; B++)
+				{
+					File << FourthB(B, 0) << "\n";
+
+					for (int W = 0; W < NH3; W++)
+					{
+						File << FourthW(B, W) << "\n";
+					}
+				}
+				RecentLayer = NH4;
+				break;
+			default:
+				break;
+			}
+		}
+		else if (i == Layers - 1)
+		{
+			for (int B = 0; B < NOut; B++)
+			{
+				File << OutB(B, 0) << "\n";
+
+				for (int W = 0; W < RecentLayer; W++)
+				{
+					File << OutW(B, W) << "\n";
+				}
+			}
+		}
+	}
+	File.close();
+}
+
+void NN::DeleteWeights()
+{
+	std::ofstream TextFile(FileName);
+	TextFile.open("test.txt", std::ofstream::out | std::ofstream::trunc);
+	TextFile.close();
+}
+
+void NN::RetrieveWeights()
+{
+	std::ifstream File(FileName);
+
+	int RecentLayer = NI;
+	for (int i = 0; i < Layers; i++)
+	{
+		if (i != Layers - 1)
+		{
+			//[NextLayer, PastLayer]
+			switch (i)
+			{
+				//Input Layer, no biases
+			case 0:
+				//InputN = MatrixXd(NI, 1);
+				break;
+				//H1 Layer, biases, weight from past to this
+			case 1:
+				for (int B = 0; B < NH1; B++)
+				{
+					File >> FirstB(B, 0);
+
+					for (int W = 0; W < NI; W++)
+					{
+						File >> FirstW(B, W);
+					}
+				}
+				RecentLayer = NH1;
+				break;
+				//H2 Layer, biases, weight from past to this
+			case 2:
+				for (int B = 0; B < NH2; B++)
+				{
+					File >> SecondB(B, 0);
+
+					for (int W = 0; W < NH1; W++)
+					{
+						File >> SecondW(B, W);
+					}
+				}
+				RecentLayer = NH2;
+				break;
+				//H3 Layer, biases, weight from past to this
+			case 3:
+				for (int B = 0; B < NH3; B++)
+				{
+					File >> ThirdB(B, 0);
+
+					for (int W = 0; W < NH2; W++)
+					{
+						File >> ThirdW(B, W);
+					}
+				}
+				RecentLayer = NH3;
+				break;
+				//H4 Layer, biases, weight from past to this
+			case 4:
+				for (int B = 0; B < NH4; B++)
+				{
+					File >> FourthB(B, 0);
+
+					for (int W = 0; W < NH3; W++)
+					{
+						File >> FourthW(B, W);
+					}
+				}
+				RecentLayer = NH4;
+				break;
+			default:
+				break;
+			}
+		}
+		else if (i == Layers - 1)
+		{
+			for (int B = 0; B < NOut; B++)
+			{
+				File >> OutB(B, 0);
+
+				for (int W = 0; W < RecentLayer; W++)
+				{
+					File >> OutW(B, W);
+				}
+			}
+		}
+	}
+	File.close();
+}
+
+
 //Hidden layer = 0, Output = 1
 //0 is LeakyReLU, 1 is Tanh
 //0 is hidden layer, 1 is output
@@ -850,6 +1060,25 @@ double NN::ActivationFunction(int IsHiddenLayer, double In, bool UsingDerivative
 	return 1.0;
 }
 
+Eigen::MatrixXd NN::Concatenate(Eigen::MatrixXd FirstMatrix, Eigen::MatrixXd SecondMatrix, int FirstSize, int SecondSize)
+{
+	Eigen::MatrixXd Concatenated = Eigen::MatrixXd::Zero(FirstSize + SecondSize, 1);
+	//Loop to fill up concatenated
+	for (int i = 0; i < FirstSize + SecondSize; i++)
+	{
+		if (i < FirstSize)
+		{
+			Concatenated(i, 0) = FirstMatrix(i, 0);
+		}
+		else //after state embedding is added
+		{
+			Concatenated(i, 0) = SecondMatrix(i - FirstSize, 0);
+		}
+	}
+
+	return Concatenated;
+}
+
 double NN::LeakyReLU(double In)
 {
 	if (In > 0)
@@ -877,7 +1106,7 @@ double NN::DerLeakyReLU(double In)
 double NN::Tanh(double In)
 {
 	//std::cout << "Tanh output: " << tanh(In) << " Input into Tanh: " << In << std::endl;
-	if (In > 10)
+	if (In > 15)
 	{
 		std::cout << "Tanh Exploding, Tanh output: " << tanh(In) << " Input into Tanh: " << In << std::endl;
 	}
@@ -926,12 +1155,12 @@ void NN::SoftmaxOutputs()
 	double Sum = 0;
 	for (int i = 0; i < NOut; i++)
 	{
-		OutN(i, 0) = exp(OutN(i, 0));
-		Sum += OutN(i, 0);
+		ArrayOutN(i, 0) = exp(OutN(i, 0));
+		Sum += ArrayOutN(i, 0);
 	}
 	//Now we have the values to the e^value and we have the sum, now divide each for their final value
 	for (int i = 0; i < NOut; i++)
 	{
-		OutN(i, 0) = OutN(i, 0) / Sum;
+		ArrayOutN(i, 0) = ArrayOutN(i, 0) / Sum;
 	}
 }
