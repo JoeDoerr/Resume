@@ -1,5 +1,6 @@
 #pragma once
 #include "Eigen/Dense"
+#include "string"
 //#include "cstdint"
 
 //using namespace Eigen;
@@ -13,10 +14,16 @@
 class NN
 {
 public:
-	NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHidden, int BatchSize = 25, bool UsingRandomizedLearning = true, double LR = 0.01, int MemorySize = 100, int GetRewardType = 0, int ChooseActionType = 0, int NH2 = 0, int NH3 = 0, int NH4 = 0, bool ActionChooserNN = false);
+	NN(int LayerAmount, int NI, int NH1, int NOut, int ActFuncOut, int ActFuncHidden, double LR = 0.01, int MemorySize = 100, 
+		int GetRewardType = 0, int ChooseActionType = 0, int NH2 = 0, int NH3 = 0, int NH4 = 0, bool ActionChooserNN = false, bool SaveOutputs = false, std::string FileName = "weforgottoputfilename");
 	
+	//Memory storage://
+
 	//(MemoryIt, Iterator for values in that memory)
 	Eigen::MatrixXd StateMemory;
+
+	//(Memory It, Iterator for values in the output)
+	Eigen::MatrixXd OutputMemory;
 
 	//What ended up being the value of the output actions currently
 	Eigen::MatrixXd TempOutputMemory;
@@ -27,36 +34,45 @@ public:
 	//(MemoryIt, 0)
 	Eigen::MatrixXd RewardMemory;
 
+
 	int MemoryIt = 0;
+
+	//End Memory Storage//
+
+
+	//true if we don't recalculate for the outputs in backprop, false would be for when we do backprop out of order
+	bool SaveOutputs = false;
 
 	//GetRewardType == 0
 	int SuccessfulAction = 0;
 
-	//Plastic
-	bool ThisTimeSuccess = false;
-
+	//for if we want to track rewards each step real time
 	float SuccessAmount = 0;
 	int RunTimes = 1;
 
+	//Initialize weights correctly so that the NN doesn't start off with exploding values
 	void InitializeWeightsScaledToInputAmount();
 
 private:
 
-	const int Layers = 1;
+	//activation function trackers
 	int ActFunctionOut = 0; //.. 0 is LeakyReLU, 1 is Tanh, 2 is sigmoid
 	int ActFunctionHidden = 0; //.. 0 is LeakyReLU, 1 is Tanh
+
+	//constants
+	const int Layers = 1;
 	const int Inputs = 0;
-	const int BatchSize = 25;
 	const int MemorySize = 100;
-	const bool UsingRandomizedLearning = true;
 	const int GetRewardType = 0;
 	const int ChooseActionType = 0; //0 is epsilon sub, 1 is normal epsilon
 	const bool ActionChooserNN = false; //Is this a neural network that chooses actions itself
+	const std::string FileName; //save the weights after we finish something
 
+	//misc variables
 	int Epsilon = 5;
-
 	double LR = 0.01;
 
+	//to more easily figure the last hidden layer to have go into the output weight matrix
 	int LastHiddenSize = 0;
 	Eigen::MatrixXd LastHiddenL;
 	void GetLastHiddenL();
@@ -70,7 +86,7 @@ private:
 	const int NOut;
 
 	//Weights (Malleable pointers set in CreateWeights) (The First is input to h1, the the next ones can be h1 to h2 stuff or hsomething to output)
-	Eigen::MatrixXd FirstW;
+	//Eigen::MatrixXd FirstW;
 	Eigen::MatrixXd SecondW;
 	Eigen::MatrixXd ThirdW;
 	Eigen::MatrixXd FourthW;
@@ -109,12 +125,17 @@ private:
 	void SoftmaxOutputs();
 
 public:
+	Eigen::MatrixXd FirstW;
+
 	//Neuron Value output is public so it can be used
-	Eigen::ArrayXXd ArrayOutN;
-	Eigen::MatrixXd OutN;
+	Eigen::ArrayXXd ArrayOutN; //post activation functioned output
+	Eigen::MatrixXd OutN; //pre activation functioned output
 
 	//InputError
 	Eigen::MatrixXd InputError;
+
+	///static functions:///
+	static Eigen::MatrixXd Concatenate(Eigen::MatrixXd FirstMatrix, Eigen::MatrixXd SecondMatrix, int FirstSize, int SecondSize);
 
 	//activation functions
 	static double LeakyReLU(double In);
@@ -149,4 +170,8 @@ public:
 	void LearnSingleRunThrough(Eigen::MatrixXd Errors, int MemIt);
 	void CleanGradients();
 	void ApplyGradients();
+
+	void RetrieveWeights();
+	void SaveWeights();
+	void DeleteWeights();
 };
