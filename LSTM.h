@@ -5,8 +5,6 @@
 
 #define MAXMEM 200
 
-//Author: Joe Doerr
-
 class LSTM
 {
 public:
@@ -22,6 +20,9 @@ public:
 	void BackpropagateLSTM(Eigen::ArrayXXd Error, int CurrentTimestep, Eigen::ArrayXXd MemCellErrors, int CurrentRecursiveIteration = 0, bool CEC = false); //Backpropagate unrolled LSTM from the current timestep's errors
 	//call again for different timestep errors to be used
 
+	//make an int array for each reward in the epoch then pass in here to do automatic backprop for the epoch
+	void RunBackprop(float Rewards[], int EpochLength);
+
 	void UpdateAndCleanNNs();
 
 	int ActionChosenIterator = 0;
@@ -31,11 +32,20 @@ public:
 
 	int Epsilon = 5; //want epsilon to be externally changed
 
+	//retrieve the whole LSTM of neural nets
+	void RetrieveAllWeights();
+	void SaveAllWeights();
+	void DeleteAllWeights();
+
+	//to use the LSTM, know the epoch length you want and instantiate it with that as memory, can just put in inputs each time into FeedForward then take the actionchoseniterator out and use that
+	//for backprop make the "Error" yourself with what 
+
 private:
 
 	//Functions//
 	void ChooseAction();
-	
+	NN* ActionChoosingNN;
+
 	//Size Values:
 	const int RInputSize = 0;
 	const int InputSize = 0;
@@ -52,14 +62,19 @@ private:
 
 	int MemoryIterator = 0;
 
+	std::array<int, MAXMEM> ActionMemory; //makes backprop with RL easier, //records action iterators
 
 	Eigen::MatrixXd RInput;
 	Eigen::ArrayXXd MemCell;
 
+	//Neural Networks
 	NN* BlockInputNN;
 	NN* ForgetGateNN;
 	NN* InputGateNN;
 	NN* OutputGateNN;
+
+
+	//Memory Array Matrices:
 
 	//All will be matrices of timestep and size, all being the rinput size
 	//Pieces of the LSTM needing to be saved:
