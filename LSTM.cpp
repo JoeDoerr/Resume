@@ -12,18 +12,19 @@
 #define TANHAF 1
 #define SIGMOIDAF 2
 
+#define NOACTIONCHOOSE -1
 #define EPSILONSUBACTIONTYPE 0
 #define EPSILONNORMACTIONTYPE 1
 
-//Author: Joe Doerr
-
 //Summary of entire LSTM:
+//when epoch starts initialize memcell and rinput and set memoryiterator back to 0
 //Have a memory size equal to epoch size
 //Calculate gradients right after each run but don't put them in instantly (Use UpdateAndCleanNNs to apply them)
 //Feed Forward remembers all the information for backprop at that timestep
 //Backprop takes the error from a timestep and BPTTs it, can do errors from as many timesteps as want
 //Has choose action functionality that has different modes of decision making. (Set a public variable to the action iterator we chose so some other functionality can use it)
 
+//*Note: RInput must be the same size as ActionAmount
 
 //...Setting matrices or arrays equal to each other means using: m2 = m1.cast<float>();
 //Essentially if we using MatrixXd do not use anything with Xf because they cannot convert from float to double or the other way
@@ -33,10 +34,11 @@ LSTM::LSTM(int RInputSize, int InputSize, int MemSize, float LR, int AmountOfAct
 {
 	FinalInputSize = RInputSize + InputSize;
 	//All NN's with 1 input, 1 hidden, 1 output, with input being rinput+input size, and output being rinput size, all same memory is necessary
-	BlockInputNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, TANHAF, LEAKYRELUAF, MemSize, false, LR, MemSize);
-	ForgetGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, MemSize, false, LR, MemSize);
-	InputGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, MemSize, false, LR, MemSize);
-	OutputGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, MemSize, false, LR, MemSize);
+	BlockInputNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, TANHAF, LEAKYRELUAF, LR, MemSize, 0, 0, 0, 0, 0, false, false, "BlockInput.txt");
+	ForgetGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, LR, MemSize, 0, 0, 0, 0, 0, false, false, "ForgetGate.txt");
+	InputGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, LR, MemSize, 0, 0, 0, 0, 0, false, false, "InputGate.txt");
+	OutputGateNN = new NN(3, FinalInputSize, FinalInputSize, RInputSize, SIGMOIDAF, LEAKYRELUAF, LR, MemSize, 0, 0, 0, 0, 0, false, false, "OutputGate.txt");
+	ActionChoosingNN = new NN(4, RInputSize, RInputSize, AmountOfActions, SIGMOIDAF, LEAKYRELUAF, 0.01, MemSize, 0, 0, RInputSize, 0, 0, false, true, "ActionChoosingNN.txt");
 
 	//Scale initialized weights based on input amount
 	BlockInputNN->InitializeWeightsScaledToInputAmount();
@@ -44,16 +46,7 @@ LSTM::LSTM(int RInputSize, int InputSize, int MemSize, float LR, int AmountOfAct
 	InputGateNN->InitializeWeightsScaledToInputAmount();
 	OutputGateNN->InitializeWeightsScaledToInputAmount();
 
-	//Make info matrices
-	//BlockOutMem = Eigen::MatrixXd(MemSize, RInputSize);
-	//InputOutMem = Eigen::MatrixXd(MemSize, RInputSize);
-	//ForgetOutMem = Eigen::MatrixXd(MemSize, RInputSize);
-	//OutputOutMem = Eigen::MatrixXd(MemSize, RInputSize);
-	//BlockOutMemPreAF = Eigen::MatrixXd(MemSize, RInputSize);
-	//InputOutMemPreAF = Eigen::MatrixXd(MemSize, RInputSize);
-	//ForgetOutMemPreAF = Eigen::MatrixXd(MemSize, RInputSize);
-	//OutputOutMemPreAF = Eigen::MatrixXd(MemSize, RInputSize);
-	//MemCellMem = Eigen::MatrixXd(MemSize, RInputSize);
+	MemoryIterator = 0;
 
 	//Make info matrices
 	for (int i = 0; i < MemSize; i++)
@@ -107,16 +100,17 @@ void LSTM::FeedForwardLSTM(Eigen::MatrixXd InputMatrix) //need to save the outpu
 	}
 	
 	//std::cout << "RealInput: " << RealInput << std::endl;
-
+	
 //update memcell with elementwise mutliplcation of forget gate's result
-	ForgetGateNN->FeedForward(RealInput);
+	ForgetGateNN->FeedForward(RealInput); //error here with the real input
+	
 	//std::cout << "ForgetGateNN Output: " << ForgetGateNN->ArrayOutN << std::endl;
 	//Save forgetoutput in memory
 	ForgetOutMemPreAF[MemoryIterator] = ForgetGateNN->OutN.array(); //OutN is the preAf version of the output
 	ForgetOutMem[MemoryIterator] = ForgetGateNN->ArrayOutN; //Normal version
 	
 	MemCell *= ForgetGateNN->ArrayOutN; //two arrays elementwise multiplied
-
+	
 	//std::cout << "MemCell: " << MemCell << std::endl;
 
 //make block input and elementwise multiply to input gate
@@ -160,7 +154,10 @@ void LSTM::FeedForwardLSTM(Eigen::MatrixXd InputMatrix) //need to save the outpu
 	RInput = MemCell.matrix();
 
 //output a decision (The mem cell is used as sort of the value being passed through)
-	ChooseAction();
+	if (ChooseActionType != NOACTIONCHOOSE)
+	{
+		ChooseAction();
+	}
 
 //Save RInput as memory (the output of this timestep)
 	BlockOutputMem[MemoryIterator] = MemCell;
@@ -177,16 +174,17 @@ void LSTM::FeedForwardLSTM(Eigen::MatrixXd InputMatrix) //need to save the outpu
 //put in anything for memcell errors for when just beginning backprop
 void LSTM::BackpropagateLSTM(Eigen::ArrayXXd Error, int CurrentTimestep, Eigen::ArrayXXd MemCellErrors, int CurrentRecursiveIteration, bool CEC) //unrolling just for one of the timestep's decisions at a time
 {
+	//std::cout << "Backprop at timestep: " << CurrentRecursiveIteration << std::endl;
 	//Recieve the final value of success for action of this timestep as (changing, 1)
 	//Run recursively all the way through unrolled LSTM, with only calculating the OutputGate errors once and just rerunning with the constant error carousel (CEC)
 
 //Create all post output gate errors
-
+	
 	//The scaled error that is recycled and used in everything
 	Eigen::ArrayXXd ScaledError(RInputSize, 1);
 
 //For output gate gradients, the errors to give to the NN are found by:
-
+	
 	//freezing the world at that time expect for our output gate NN
 	//So, elementwise multiply the output errors by the MemCell
 	//Now that it knows how much of an effect there was on the errors, now multiply by dersigmoid(outputgatevalueattime)
@@ -240,7 +238,7 @@ void LSTM::BackpropagateLSTM(Eigen::ArrayXXd Error, int CurrentTimestep, Eigen::
 
 	//std::cout << "Current Timestep: " << CurrentTimestep << std::endl;
 	CurrentRecursiveIteration++;
-	if (CurrentRecursiveIteration == TruncateBP)
+	if (CurrentRecursiveIteration < TruncateBP && CurrentTimestep - 1 >= 0)
 	{
 		//First update memcellerrors:
 		
@@ -249,6 +247,51 @@ void LSTM::BackpropagateLSTM(Eigen::ArrayXXd Error, int CurrentTimestep, Eigen::
 		
 		BackpropagateLSTM(Error, CurrentTimestep - 1, MemCellErrors, CurrentRecursiveIteration, UsingCEC); //if we have usingcec as true, then we will be running CEC, if not, then it runs without CEC
 	}
+}
+
+void LSTM::RunBackprop(float Rewards[], int EpochLength)
+{
+	//develop the error at each iterator then backprop it
+	for (int i = 0; i < EpochLength; i++)
+	{
+		//float ActionError = Rewards[i] - OutputOutMem[i](ActionMemory[i], 0);
+		float ActionError = Rewards[i] - ActionChoosingNN->OutputMemory(i, ActionMemory[i]);
+		
+		Eigen::MatrixXd Errors = Eigen::MatrixXd::Zero(AmountOfActions, 1);
+		
+		//if they have a negative reward, optimize all other actions only up to 1/5 of what outputoutmem was
+		if (ActionError < 0)
+		{
+			//float OptimalValue = OutputOutMem[i](ActionMemory[i], 0) / 5; //1/5 the value that the failed action had
+			float OptimalValue = ActionChoosingNN->OutputMemory(i, ActionMemory[i]) / 5;
+			for (int b = 0; b < AmountOfActions; b++)
+			{
+				if (ActionChoosingNN->OutputMemory(i, b) < OptimalValue) //only do if it is to increase it
+				{
+					Errors(b, 0) = OptimalValue - ActionChoosingNN->OutputMemory(i, b);
+				}
+			}
+		}
+		else if(ActionError > 0) //if just a positive change, optimize others down to 0, and if it is exactly the same (=), then errors are all 0!
+		{
+			for (int b = 0; b < AmountOfActions; b++)
+			{
+				//Errors(b, 0) = 0 - OutputOutMem[i](b, 0);
+				Errors(b, 0) = 0 - ActionChoosingNN->OutputMemory(i, b);
+			}
+		}
+		
+		//Then put in the action error into the errors
+		Errors(ActionMemory[i], 0) = ActionError;
+		
+		//now use these errors to backproagate ActionChoosingNN, then the input errors of ActionChoosingNN will be used on LSTMBackprop
+		ActionChoosingNN->BackPropagate(i, Errors);
+		
+		//now finally we can do 
+		BackpropagateLSTM(ActionChoosingNN->InputError, i, Errors); //remember you can put anything for memcell when backprop cuz it will be made themselves
+		
+	}
+	UpdateAndCleanNNs();
 }
 
 void LSTM::UpdateAndCleanNNs()
@@ -265,19 +308,24 @@ void LSTM::UpdateAndCleanNNs()
 
 	OutputGateNN->ApplyGradients();
 	OutputGateNN->CleanGradients();
+
+	ActionChoosingNN->ApplyGradients();
+	ActionChoosingNN->CleanGradients();
 }
 
 void LSTM::ChooseAction()
 {
+	ActionChoosingNN->FeedForward(MemCell, false);
+
 	//Finding the highest value output
 	float Highest = -10000;
 	int It = -1;
 	//Highest Value
-	for (int i = 0; i < RInputSize; i++)
+	for (int i = 0; i < AmountOfActions; i++)
 	{
-		if (MemCell(i, 0) > Highest)
+		if (ActionChoosingNN->ArrayOutN(i, 0) > Highest)
 		{
-			Highest = MemCell(i, 0);
+			Highest = ActionChoosingNN->ArrayOutN(i, 0);
 			It = i;
 		}
 	}
@@ -303,5 +351,34 @@ void LSTM::ChooseAction()
 		ActionChosenIterator = It;
 	}
 
+	ActionMemory[MemoryIterator] = ActionChosenIterator;
+
 	//std::cout << "At this memoryit: " << MemoryIterator << " Chose this action: " << ActionChosenIterator << std::endl;
+}
+
+void LSTM::RetrieveAllWeights()
+{
+	BlockInputNN->RetrieveWeights();
+	InputGateNN->RetrieveWeights();
+	ForgetGateNN->RetrieveWeights();
+	OutputGateNN->RetrieveWeights();
+	ActionChoosingNN->RetrieveWeights();
+}
+
+void LSTM::SaveAllWeights()
+{
+	BlockInputNN->SaveWeights();
+	InputGateNN->SaveWeights();
+	ForgetGateNN->SaveWeights();
+	OutputGateNN->SaveWeights();
+	ActionChoosingNN->SaveWeights();
+}
+
+void LSTM::DeleteAllWeights()
+{
+	BlockInputNN->DeleteWeights();
+	InputGateNN->DeleteWeights();
+	ForgetGateNN->DeleteWeights();
+	OutputGateNN->DeleteWeights();
+	ActionChoosingNN->DeleteWeights();
 }
