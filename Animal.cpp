@@ -66,3 +66,4 @@ void Animal::Move(Env* Prey)
 		Prey->BombY = -1;
 	}
 }
+
