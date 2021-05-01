@@ -2,6 +2,7 @@
 Some interesting projects that I have done:
 
 Feed forward neural network and LSTM built off of it using the eigen library. Written in C++. Files: LSTM.cpp, LSTM.h, NN.cpp, NN.h
+
 Contains functionality to save trained neural network weights in text files and retrieve them for use after closing program.
 
 Simple 2d game testing LSTM functionality. Files: Env.cpp, Env.h, Animal.cpp, Animal.h, main.cpp
