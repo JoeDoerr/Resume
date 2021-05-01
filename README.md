@@ -10,7 +10,7 @@ Simple 2d game testing LSTM functionality. Files: Env.cpp, Env.h, Animal.cpp, An
 
 Completed Game using Unreal Engine 4 Showcase video: https://www.youtube.com/watch?v=_0EHRcCsuEo&ab_channel=BBBAAA
 
-Automatic Pokemon Shiny hunting Machines using Arduino video: https://youtu.be/quXotwqyeH4 
-files: ArduinoShinyHunter, ArduinoLegendaryPokemonShinyHunter
+Automatic Pokemon Shiny hunting Machines using Arduino video: https://youtu.be/quXotwqyeH4       
+Files: ArduinoShinyHunter, ArduinoLegendaryPokemonShinyHunter
 
 My YouTube channel: https://www.youtube.com/channel/UC5FYeXus9XNnPKATCq_G4Ng
